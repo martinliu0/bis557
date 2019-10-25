@@ -1,0 +1,32 @@
+Package: bis557
+Type: Package
+Title: BIS557 HW2
+Version: 0.1.0
+Author: Mengxian Liu
+Maintainer: Mengxian Liu <mengxian.liu@yale.edu>
+Description: HW2 for BIS557.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Imports:
+    stats,
+    casl,
+    foreach,
+    parallel,
+    doParallel, 
+    dplyr,
+    ggplot2, 
+    rsample,
+    magrittr
+Remotes: statsmaths/casl
+Depends:
+  R (>= 3.1.0)
+Suggests: 
+    knitr,
+    rmarkdown,
+    testthat (>= 2.1.0),
+    covr,
+    MASS,
+    glmnet
+VignetteBuilder: knitr
+RoxygenNote: 6.1.1

@@ -1,0 +1,212 @@
+---
+title: "homework2"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Put the title of your vignette here}
+  %\VignetteEngine{knitr::rmarkdown}
+  \usepackage[utf8]{inputenc}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(casl)
+```
+
+## (CASL 2.11 Exercises P5) Consider the simple regression model with only a scalar *x* and intercept: $$y = \beta_0 + \beta_1 * x$$ Using the explicit formula for the inverse of a 2-by-2 matrix, write down the least squares estimators for $\hat{\beta_0}$ and $\hat{\beta_1}$.
+
+In matrix form, we can express the simple regression model as:
+
+$$
+\begin{bmatrix}
+y_1\\
+y_2\\
+\vdots\\
+y_n
+\end{bmatrix}
+=
+\begin{bmatrix}
+1 & x_1\\
+1 & x_2\\
+\vdots\\
+1 & x_n
+\end{bmatrix}
+\cdot
+\begin{bmatrix}
+\beta_0\\
+\beta_1
+\end{bmatrix}
+$$
+
+Since we solve OLS by $\hat{\beta} = (X^TX)^{-1}X^TY$ and we know $X = (\boldsymbol{1}\ x_i), X\in \mathbb{R^2}$, to get $X^TX$ we have:
+
+$$
+X^TX = 
+\begin{bmatrix}
+n & \sum x_i\\
+\sum x_i & \sum x_i^2\\
+\end{bmatrix}
+$$
+
+The inverse of $X^TX$ is:
+
+$$
+(X^TX)^{-1} = 
+\frac{1}{n \sum x_i^2 - (\sum x_i)^2}
+\begin{bmatrix}
+\sum x_i^2 & -\sum x_i\\
+-\sum x_i & n\\
+\end{bmatrix}
+$$
+
+The remaining part of the solver, i.e. $X^TY$ is:
+
+$$
+X^TY = 
+\begin{bmatrix}
+1 & 1 & \cdots & 1\\
+x_1 & x_2 & \cdots &x_n
+\end{bmatrix}
+\begin{bmatrix}
+y_1\\
+y_2\\
+\vdots\\
+y_n
+\end{bmatrix}
+=
+\begin{bmatrix}
+\sum y_i\\
+\sum x_iy_i\\
+\end{bmatrix}
+$$
+
+Combining what we have:
+
+$$
+\begin{aligned}
+\hat{\beta} &= (X^TX)^{-1}X^TY\\
+&= 
+\frac{1}{n \sum x_i^2 - (\sum x_i)^2}
+\begin{bmatrix}
+\sum x_i^2 & -\sum x_i\\
+-\sum x_i & n\\
+\end{bmatrix}
+\begin{bmatrix}
+\sum y_i\\
+\sum x_iy_i\\
+\end{bmatrix}\\
+&=\frac{1}{n \sum x_i^2 - (\sum x_i)^2}
+\begin{bmatrix}
+\sum x_i^2\sum y_i - \sum x_i\sum x_iy_i\\
+-\sum x_i\sum y_i+ n\sum x_i y _i\\
+\end{bmatrix}\\
+\end{aligned}
+$$
+
+## 4. Section 2.8 of CASL shows that as the numerical stability decreases, statistical errors increase. Reproduce the results and then show that using ridge regression can increase numerical stability and decrease statistical error.
+
+Using an example from the textbook, we generate a $1000$ x $25$ data matrix to illustrate the relationship between the condition number of the statistical error in estimating a regression vector. The first coordinate of the matrix is equal to 1, the other 24 coordinates are zeros, and a data matrix $X$ filled with randomly sampled normal variables. The condition number of the matrix $X$ can be computed from its singular values, and is equal to slightly more than $1.36$
+
+```{r}
+n <- 1000; p <- 25
+beta <- c(1, rep(0, p - 1))
+X <- matrix(rnorm(n * p), ncol = p)
+svals <- svd(X)$d
+max(svals) / min(svals)
+```
+
+We then generate some response data $y$ and compute the mean squared error of our prediction:
+
+```{r}
+N <- 1e4; `12_errors` <- rep(0, N)
+for (k in 1:N){
+  y <- X %*% beta + rnorm(n)
+  betahat <- casl_ols_svd(X, y)
+  `12_errors`[k] <- sqrt(sum((betahat - beta)^2))
+}
+mean(`12_errors`)
+```
+
+The typical error in this example is quite small, at under 0.16. However, if we modify $X$ so that the first column of $X$ is a linear combination of the original first column and the second column. Now the two columns of $X$ are highly correlated and we a significantly increased condition number for the matrix $X^TX$. The the error rate, accordingly, has increased by a factor of over $200$.
+
+```{r}
+alpha <- 0.001
+X[,1] <- X[,1] * alpha + X[,2] * (1 - alpha)
+svals <- svd(X)$d
+max(svals) / min(svals)
+
+N <- 1e4; l2_errors <- rep(0, N)
+for (k in 1:N) {
+  y <- X %*% beta + rnorm(n)
+  betahat <- solve(crossprod(X), crossprod(X, y))
+  l2_errors[k] <- sqrt(sum((betahat - beta)^2))
+}
+mean(l2_errors)
+```
+
+Ridge regression can effectively solve this issue by adding a parameter $\lambda$ to $X^TX$, hence eliminating any previous dependency between its columns. Coefficients are now being estimated as $\hat{\beta} = (X^TX + \lambda I)^{-1}X^TY$. So the new condition number is given by $\kappa(A) = \frac{|\sigma_\max(A) + \lambda|}{|\sigma_\min(A)) + \lambda|}$, where $\sigma_\max$ and $\sigma_\min$ are maximum and minimum singular values of $A$ respectively. We can see with a $\lambda= 1$ there is already a dramatic decrease of the condition number (from over $2000$ to below $50$).
+
+```{r}
+lambda <- 1
+svals <- svd(X)$d
+(max(svals) +  lambda) / (min(svals) + lambda)
+```
+
+We then use ridge regression to estimate $\beta$ and calculate the prediction error. As we can see, the prediction error was predictably (no pun intended) significantly reduced. 
+
+```{r}
+N <- 1e4; `12_errors` <- rep(0, N)
+for (k in 1:N){
+  y <- X %*% beta + rnorm(n)
+  betahat <-solve(crossprod(X) + diag(rep(lambda, ncol(X))) ) %*% t(X) %*% y 
+  `12_errors`[k] <- sqrt(sum((betahat - beta)^2))
+}
+mean(`12_errors`)
+```
+
+
+## 5. Consider the LASSO penalty: $$\frac{1}{2n} ||Y - X \beta||^2_2 + \lambda ||\beta||_1$$Show that if $|X_j^TY| \le n \lambda$$, then $\hat{\beta}^{LASSO}$ must be zero.
+
+Conventionally, the LASSO regression minimizes the quantity $RSS(\beta) + \lambda \sum_{j=1}^p |\beta_j|$ or $||Y - X \beta||^2_2 + \lambda ||\beta||_1$. In this case the quantity is $\frac{1}{2n} ||Y - X \beta||^2_2 + \lambda ||\beta||_1$. We represent it as follows:
+
+$$
+\begin{aligned}
+f(\beta) &= \frac{1}{2n} ||Y - X \beta||^2_2 + \lambda ||\beta||_1\\ 
+&= \frac{1}{2n} (Y - X \beta)^T(Y - X \beta)+ \lambda |\beta|\\
+&=\frac{1}{2n} (-2\beta^TX^TY+\beta^TX^TX\beta) + \lambda |\beta|\\
+&*\text{since}\ X\ \text{is orthonormal}, X^TX = 1\\
+&= -\frac{1}{n}\beta^TX^TY + \frac{1}{2n}\beta^2 +  \lambda \frac{\beta}{|\beta|}
+\end{aligned}
+$$
+
+
+To find the $\hat{\beta}^{LASSO}$ that minimizes $f(\beta)$, we find the gradient of $f(\beta)$ w.r.t. $\beta$ and set it to zero.
+
+$$
+\begin{aligned}
+\nabla f_\beta(\beta) &= \nabla(-\frac{1}{n}\beta^TX^TY + \frac{1}{2n}\beta^2 +  \lambda \frac{\beta}{|\beta|})\\ 
+&=-\frac{1}{n}X^TY +  \frac{1}{n}\beta + \lambda \frac{\beta}{|\beta|} = 0\\
+\end{aligned}
+$$
+
+(1) $\beta > 0$:
+
+$$
+\begin{aligned}
+\nabla f_\beta(\beta) &= -\frac{1}{n}X^TY + \frac{1}{n}\beta +  \lambda = 0\\
+\Rightarrow\ \beta &= X^TY - n\lambda > 0\\
+\Rightarrow\ &X^TY > n\lambda
+\end{aligned}
+$$
+
+(2) $\beta < 0$:
+
+$$
+\begin{aligned}
+\nabla f_\beta(\beta) &= -\frac{1}{n}X^TY + \frac{1}{n}\beta -  \lambda = 0\\
+\Rightarrow\ \beta &= X^TY + n\lambda < 0\\
+\Rightarrow\ &-X^TY > n\lambda
+\end{aligned}
+$$
+
+Hence if $|X^TY| > n\lambda$, we have $\{\beta: \beta < 0\ \text{or}\ \beta > 0\}$. If $|X^TY| <  n\lambda$, we necessarily have $\beta = 0$.
+
